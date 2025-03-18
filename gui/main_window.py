@@ -7,6 +7,7 @@
 import asyncio
 import logging
 import os
+import traceback
 from datetime import datetime
 from typing import Optional, Dict, Any
 
@@ -201,11 +202,21 @@ class ShogunOSCApp(QMainWindow):
     
     def show_settings_dialog(self):
         """Показывает диалог настроек приложения"""
-        settings_dialog = SettingsDialog(self)
-        result = settings_dialog.exec_()
-        
-        if result == SettingsDialog.Accepted:
-            self.logger.info("Настройки применены из диалога настроек")
+        try:
+            settings_dialog = SettingsDialog(self)
+            result = settings_dialog.exec_()
+            
+            if result == SettingsDialog.Accepted:
+                self.logger.info("Настройки применены из диалога настроек")
+        except Exception as e:
+            # Записываем подробную информацию об ошибке в лог
+            error_msg = f"Ошибка при открытии диалога настроек: {e}"
+            stack_trace = traceback.format_exc()
+            self.logger.error(f"{error_msg}\n{stack_trace}")
+            
+            # Показываем пользователю сообщение об ошибке
+            self.show_error_dialog("Ошибка настроек", 
+                                  f"Не удалось открыть диалог настроек:\n{e}")
     
     def connect_signals(self):
         """Подключение сигналов между компонентами"""
@@ -342,63 +353,75 @@ class ShogunOSCApp(QMainWindow):
     
     def start_osc_server(self):
         """Запуск OSC-сервера"""
-        ip = self.status_panel.osc_panel.ip_input.text()
-        port = self.status_panel.osc_panel.port_input.value()
-        
-        # Сохраняем настройки
-        self.settings_manager.set("osc_ip", ip)
-        self.settings_manager.set("osc_port", port)
-        
-        # Останавливаем предыдущий сервер, если был
-        self.stop_osc_server()
-        
-        # Создаем и запускаем новый сервер
-        self.osc_server = OSCServer(ip, port, self.shogun_worker)
-        self.osc_server.message_signal.connect(self.log_panel.add_osc_message)
-        self.osc_server.start()
-        
-        # Блокируем изменение настроек при запущенном сервере
-        self.status_panel.osc_panel.ip_input.setEnabled(False)
-        self.status_panel.osc_panel.port_input.setEnabled(False)
-        
-        self.logger.info(f"OSC-сервер запущен на {ip}:{port}")
+        try:
+            ip = self.status_panel.osc_panel.ip_input.text()
+            port = self.status_panel.osc_panel.port_input.value()
+            
+            # Сохраняем настройки
+            self.settings_manager.set("osc_ip", ip)
+            self.settings_manager.set("osc_port", port)
+            
+            # Останавливаем предыдущий сервер, если был
+            self.stop_osc_server()
+            
+            # Создаем и запускаем новый сервер
+            self.osc_server = OSCServer(ip, port, self.shogun_worker)
+            self.osc_server.message_signal.connect(self.log_panel.add_osc_message)
+            self.osc_server.start()
+            
+            # Блокируем изменение настроек при запущенном сервере
+            self.status_panel.osc_panel.ip_input.setEnabled(False)
+            self.status_panel.osc_panel.port_input.setEnabled(False)
+            
+            self.logger.info(f"OSC-сервер запущен на {ip}:{port}")
+        except Exception as e:
+            error_msg = f"Ошибка при запуске OSC-сервера: {e}"
+            self.logger.error(error_msg)
+            self.show_error_dialog("Ошибка OSC-сервера", error_msg)
     
     def stop_osc_server(self):
         """Остановка OSC-сервера"""
-        if hasattr(self, 'osc_server') and self.osc_server:
-            if self.osc_server.isRunning():
-                self.osc_server.stop()
-                self.osc_server.wait()  # Ждем завершения потока
-            self.osc_server = None
-            
-            # Разблокируем настройки
-            self.status_panel.osc_panel.ip_input.setEnabled(True)
-            self.status_panel.osc_panel.port_input.setEnabled(True)
-            
-            self.logger.info("OSC-сервер остановлен")
+        try:
+            if hasattr(self, 'osc_server') and self.osc_server:
+                if self.osc_server.isRunning():
+                    self.osc_server.stop()
+                    self.osc_server.wait()  # Ждем завершения потока
+                self.osc_server = None
+                
+                # Разблокируем настройки
+                self.status_panel.osc_panel.ip_input.setEnabled(True)
+                self.status_panel.osc_panel.port_input.setEnabled(True)
+                
+                self.logger.info("OSC-сервер остановлен")
+        except Exception as e:
+            error_msg = f"Ошибка при остановке OSC-сервера: {e}"
+            self.logger.error(error_msg)
     
     def apply_theme(self, dark_mode=False):
         """Применяет выбранную тему ко всему приложению"""
-        # Обновляем настройку темной темы в конфигурации
-        config.DARK_MODE = dark_mode
-        self.settings_manager.set("dark_mode", dark_mode)
-        
-        # Применяем палитру и стили
-        palette = get_palette(dark_mode)
-        stylesheet = get_stylesheet(dark_mode)
-        
-        # Устанавливаем палитру и стилевую таблицу для приложения
-        app = QApplication.instance()
-        app.setPalette(palette)
-        app.setStyleSheet(stylesheet)
-        
-        # Уведомляем пользователя о смене темы
-        theme_name = "тёмная" if dark_mode else "светлая"
-        self.status_bar.showMessage(f"Применена {theme_name} тема", 3000)
-        
-        # Обновляем состояние чекбокса в меню
-        if hasattr(self, 'theme_action'):
-            self.theme_action.setChecked(dark_mode)
+        try:
+            # Обновляем настройку темной темы в конфигурации
+            config.DARK_MODE = dark_mode
+            self.settings_manager.set("dark_mode", dark_mode)
+            
+            # Применяем палитру и стили
+            palette = get_palette(dark_mode)
+            stylesheet = get_stylesheet(dark_mode)
+            
+            # Устанавливаем палитру и стилевую таблицу для приложения
+            app = QApplication.instance()
+            app.setPalette(palette)
+            app.setStyleSheet(stylesheet)
+            
+            # Уведомляем пользователя о смене темы
+            theme_name = "тёмная" if dark_mode else "светлая"
+            self.status_bar.showMessage(f"Применена {theme_name} тема", 3000)
+            
+            # Обновляем состояние чекбокса в меню
+            if hasattr(self, 'theme_action'):
+                self.theme_action.setChecked(dark_mode)
+        except Exception as e:
+            self.logger.error(f"Ошибка при применении темы: {e}")
     
     def toggle_theme(self):
         """Переключение между светлой и тёмной темой"""
@@ -479,28 +502,34 @@ class ShogunOSCApp(QMainWindow):
     
     def save_current_settings(self):
         """Сохраняет текущие настройки приложения"""
-        settings_dict = {
-            "osc_ip": self.status_panel.osc_panel.ip_input.text(),
-            "osc_port": self.status_panel.osc_panel.port_input.value(),
-            "osc_enabled": self.status_panel.osc_panel.osc_enabled.isChecked()
-        }
-        
-        # Сохраняем настройки отправки OSC-сообщений
-        broadcast_settings = self.status_panel.osc_panel.get_broadcast_settings()
-        settings_dict["osc_broadcast_ip"] = broadcast_settings["ip"]
-        settings_dict["osc_broadcast_port"] = broadcast_settings["port"]
-        
-        # Сохраняем все настройки сразу
-        self.settings_manager.set_many(settings_dict)
+        try:
+            settings_dict = {
+                "osc_ip": self.status_panel.osc_panel.ip_input.text(),
+                "osc_port": self.status_panel.osc_panel.port_input.value(),
+                "osc_enabled": self.status_panel.osc_panel.osc_enabled.isChecked()
+            }
+            
+            # Сохраняем настройки отправки OSC-сообщений
+            broadcast_settings = self.status_panel.osc_panel.get_broadcast_settings()
+            settings_dict["osc_broadcast_ip"] = broadcast_settings["ip"]
+            settings_dict["osc_broadcast_port"] = broadcast_settings["port"]
+            
+            # Сохраняем все настройки сразу
+            self.settings_manager.set_many(settings_dict)
+        except Exception as e:
+            self.logger.error(f"Ошибка при сохранении настроек: {e}")
     
     def show_error_dialog(self, title, message):
         """Показывает диалоговое окно с ошибкой"""
-        error_dialog = QMessageBox(self)
-        error_dialog.setIcon(QMessageBox.Critical)
-        error_dialog.setWindowTitle(title)
-        error_dialog.setText(message)
-        error_dialog.setStandardButtons(QMessageBox.Ok)
-        error_dialog.exec_()
+        try:
+            error_dialog = QMessageBox(self)
+            error_dialog.setIcon(QMessageBox.Critical)
+            error_dialog.setWindowTitle(title)
+            error_dialog.setText(message)
+            error_dialog.setStandardButtons(QMessageBox.Ok)
+            error_dialog.exec_()
+        except Exception as e:
+            self.logger.error(f"Ошибка при отображении диалога с ошибкой: {e}")
     
     def closeEvent(self, event):
         """Обработка закрытия приложения"""
