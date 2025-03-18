@@ -6,6 +6,7 @@ import os
 import sys
 import logging
 import platform
+import traceback
 from typing import Dict, Any, Optional, Union, Set
 from PyQt5.QtCore import QSettings, QObject, pyqtSignal
 
@@ -60,11 +61,16 @@ class SettingsManager(QObject):
         self.logger = logging.getLogger('ShogunOSC')
         
         # Создаем хранилище настроек с учетом платформы
-        self.settings = QSettings("ShogunOSC", "ShogunOSCApp")
-        
-        # Загружаем настройки
-        self.settings_cache = {}
-        self.load_settings()
+        try:
+            self.settings = QSettings("ShogunOSC", "ShogunOSCApp")
+            
+            # Загружаем настройки
+            self.settings_cache = {}
+            self.load_settings()
+        except Exception as e:
+            self.logger.critical(f"Критическая ошибка при инициализации менеджера настроек: {e}\n{traceback.format_exc()}")
+            # Инициализируем настройки по умолчанию
+            self.settings_cache = self.DEFAULT_SETTINGS.copy()
         
     def get_config_dir(self) -> str:
         """
@@ -73,16 +79,21 @@ class SettingsManager(QObject):
         Returns:
             str: Путь к директории конфигурации
         """
-        if platform.system() == "Windows":
-            # Для Windows используем %APPDATA%\ShogunOSC
-            base_dir = os.environ.get("APPDATA", os.path.expanduser("~"))
-            return os.path.join(base_dir, "ShogunOSC")
-        elif platform.system() == "Darwin":
-            # Для macOS используем ~/Library/Application Support/ShogunOSC
-            return os.path.expanduser("~/Library/Application Support/ShogunOSC")
-        else:
-            # Для Linux и других систем используем ~/.config/shogun_osc
-            return os.path.expanduser("~/.config/shogun_osc")
+        try:
+            if platform.system() == "Windows":
+                # Для Windows используем %APPDATA%\\ShogunOSC
+                base_dir = os.environ.get("APPDATA", os.path.expanduser("~"))
+                return os.path.join(base_dir, "ShogunOSC")
+            elif platform.system() == "Darwin":
+                # Для macOS используем ~/Library/Application Support/ShogunOSC
+                return os.path.expanduser("~/Library/Application Support/ShogunOSC")
+            else:
+                # Для Linux и других систем используем ~/.config/shogun_osc
+                return os.path.expanduser("~/.config/shogun_osc")
+        except Exception as e:
+            self.logger.error(f"Ошибка при определении директории конфигурации: {e}")
+            # Используем текущую директорию как запасной вариант
+            return os.path.join(os.getcwd(), "shogun_osc_config")
     
     def get_logs_dir(self) -> str:
         """
@@ -91,41 +102,52 @@ class SettingsManager(QObject):
         Returns:
             str: Путь к директории логов
         """
-        # Если указана пользовательская директория для логов, используем её
-        custom_log_dir = self.get("log_dir")
-        if custom_log_dir:
-            return custom_log_dir
-            
-        # Иначе используем стандартную директорию в зависимости от ОС
-        config_dir = self.get_config_dir()
-        return os.path.join(config_dir, "logs")
+        try:
+            # Если указана пользовательская директория для логов, используем её
+            custom_log_dir = self.get("log_dir")
+            if custom_log_dir:
+                return custom_log_dir
+                
+            # Иначе используем стандартную директорию в зависимости от ОС
+            config_dir = self.get_config_dir()
+            return os.path.join(config_dir, "logs")
+        except Exception as e:
+            self.logger.error(f"Ошибка при определении директории логов: {e}")
+            # Используем текущую директорию как запасной вариант
+            return os.path.join(os.getcwd(), "logs")
     
     def _create_dirs(self) -> None:
         """Создает необходимые директории для конфигурации и логов"""
-        dirs_to_create = [self.get_config_dir(), self.get_logs_dir()]
-        
-        for directory in dirs_to_create:
-            if not os.path.exists(directory):
-                try:
-                    os.makedirs(directory)
-                    self.logger.debug(f"Создана директория: {directory}")
-                except OSError as e:
-                    self.logger.error(f"Не удалось создать директорию {directory}: {e}")
+        try:
+            dirs_to_create = [self.get_config_dir(), self.get_logs_dir()]
+            
+            for directory in dirs_to_create:
+                if not os.path.exists(directory):
+                    try:
+                        os.makedirs(directory)
+                        self.logger.debug(f"Создана директория: {directory}")
+                    except OSError as e:
+                        self.logger.error(f"Не удалось создать директорию {directory}: {e}")
+        except Exception as e:
+            self.logger.error(f"Ошибка при создании директорий: {e}")
     
     def load_settings(self) -> None:
         """Загружает настройки из QSettings и обновляет кэш"""
-        # Создаем необходимые директории
-        self._create_dirs()
-        
-        # Загружаем настройки по умолчанию в кэш
-        self.settings_cache = self.DEFAULT_SETTINGS.copy()
-        
-        # Обновляем кэш значениями из QSettings
-        for key in self.DEFAULT_SETTINGS.keys():
-            if self.settings.contains(key):
-                value = self.settings.value(key)
-                # Преобразуем значение к правильному типу
-                self.settings_cache[key] = self._convert_value(key, value)
+        try:
+            # Создаем необходимые директории
+            self._create_dirs()
+            
+            # Загружаем настройки по умолчанию в кэш
+            self.settings_cache = self.DEFAULT_SETTINGS.copy()
+            
+            # Обновляем кэш значениями из QSettings
+            for key in self.DEFAULT_SETTINGS.keys():
+                if self.settings.contains(key):
+                    value = self.settings.value(key)
+                    # Преобразуем значение к правильному типу
+                    self.settings_cache[key] = self._convert_value(key, value)
+        except Exception as e:
+            self.logger.error(f"Ошибка при загрузке настроек: {e}\n{traceback.format_exc()}")
     
     def _convert_value(self, key: str, value: Any) -> Any:
         """
@@ -138,26 +160,31 @@ class SettingsManager(QObject):
         Returns:
             Any: Преобразованное значение
         """
-        # Если ключ есть в VALUE_TYPES, преобразуем значение
-        if key in self.VALUE_TYPES:
-            target_type = self.VALUE_TYPES[key]
-            
-            # Преобразование к bool
-            if target_type is bool:
-                if isinstance(value, str):
-                    return value.lower() in ['true', '1', 'yes', 'y', 'on']
-                return bool(value)
+        try:
+            # Если ключ есть в VALUE_TYPES, преобразуем значение
+            if key in self.VALUE_TYPES:
+                target_type = self.VALUE_TYPES[key]
                 
-            # Преобразование к int
-            elif target_type is int:
-                try:
-                    return int(value)
-                except (ValueError, TypeError):
-                    self.logger.warning(f"Не удалось преобразовать значение '{value}' к типу int для ключа '{key}'")
-                    return self.DEFAULT_SETTINGS.get(key, 0)
-        
-        # Если тип не указан, возвращаем значение как есть
-        return value
+                # Преобразование к bool
+                if target_type is bool:
+                    if isinstance(value, str):
+                        return value.lower() in ['true', '1', 'yes', 'y', 'on']
+                    return bool(value)
+                    
+                # Преобразование к int
+                elif target_type is int:
+                    try:
+                        return int(value)
+                    except (ValueError, TypeError):
+                        self.logger.warning(f"Не удалось преобразовать значение '{value}' к типу int для ключа '{key}'")
+                        return self.DEFAULT_SETTINGS.get(key, 0)
+            
+            # Если тип не указан, возвращаем значение как есть
+            return value
+        except Exception as e:
+            self.logger.error(f"Ошибка при преобразовании значения: {e}")
+            # Возвращаем значение по умолчанию
+            return self.DEFAULT_SETTINGS.get(key)
     
     def get(self, key: str, default: Any = None) -> Any:
         """
@@ -170,7 +197,12 @@ class SettingsManager(QObject):
         Returns:
             Any: Значение настройки
         """
-        return self.settings_cache.get(key, default if default is not None else self.DEFAULT_SETTINGS.get(key))
+        try:
+            return self.settings_cache.get(key, default if default is not None else self.DEFAULT_SETTINGS.get(key))
+        except Exception as e:
+            self.logger.error(f"Ошибка при получении настройки {key}: {e}")
+            # Возвращаем значение по умолчанию
+            return default if default is not None else self.DEFAULT_SETTINGS.get(key)
     
     def set(self, key: str, value: Any) -> None:
         """
@@ -180,23 +212,26 @@ class SettingsManager(QObject):
             key: Ключ настройки
             value: Значение для установки
         """
-        # Преобразуем значение к правильному типу
-        value = self._convert_value(key, value)
-        
-        # Проверяем, изменилось ли значение
-        if key in self.settings_cache and self.settings_cache[key] == value:
-            return
-        
-        # Обновляем кэш и сохраняем в QSettings
-        self.settings_cache[key] = value
-        self.settings.setValue(key, value)
-        
-        # Принудительная синхронизация QSettings
-        self.settings.sync()
-        
-        # Уведомляем об изменении
-        self.settings_changed.emit(key, value)
-        self.logger.debug(f"Настройка изменена: {key} = {value}")
+        try:
+            # Преобразуем значение к правильному типу
+            value = self._convert_value(key, value)
+            
+            # Проверяем, изменилось ли значение
+            if key in self.settings_cache and self.settings_cache[key] == value:
+                return
+            
+            # Обновляем кэш и сохраняем в QSettings
+            self.settings_cache[key] = value
+            self.settings.setValue(key, value)
+            
+            # Принудительная синхронизация QSettings
+            self.settings.sync()
+            
+            # Уведомляем об изменении
+            self.settings_changed.emit(key, value)
+            self.logger.debug(f"Настройка изменена: {key} = {value}")
+        except Exception as e:
+            self.logger.error(f"Ошибка при установке настройки {key}: {e}\n{traceback.format_exc()}")
     
     def get_all(self) -> Dict[str, Any]:
         """
@@ -205,7 +240,11 @@ class SettingsManager(QObject):
         Returns:
             Dict[str, Any]: Словарь со всеми настройками
         """
-        return self.settings_cache.copy()
+        try:
+            return self.settings_cache.copy()
+        except Exception as e:
+            self.logger.error(f"Ошибка при получении всех настроек: {e}")
+            return self.DEFAULT_SETTINGS.copy()
     
     def set_many(self, settings_dict: Dict[str, Any]) -> None:
         """
@@ -214,23 +253,26 @@ class SettingsManager(QObject):
         Args:
             settings_dict: Словарь с настройками для установки
         """
-        changes = False
-        for key, value in settings_dict.items():
-            # Преобразуем значение к правильному типу
-            value = self._convert_value(key, value)
+        try:
+            changes = False
+            for key, value in settings_dict.items():
+                # Преобразуем значение к правильному типу
+                value = self._convert_value(key, value)
+                
+                # Проверяем, изменилось ли значение
+                if key not in self.settings_cache or self.settings_cache[key] != value:
+                    self.settings_cache[key] = value
+                    self.settings.setValue(key, value)
+                    changes = True
+                    # Уведомляем об изменении
+                    self.settings_changed.emit(key, value)
             
-            # Проверяем, изменилось ли значение
-            if key not in self.settings_cache or self.settings_cache[key] != value:
-                self.settings_cache[key] = value
-                self.settings.setValue(key, value)
-                changes = True
-                # Уведомляем об изменении
-                self.settings_changed.emit(key, value)
-        
-        # Синхронизируем QSettings только если были изменения
-        if changes:
-            self.settings.sync()
-            self.logger.debug("Обновлено несколько настроек")
+            # Синхронизируем QSettings только если были изменения
+            if changes:
+                self.settings.sync()
+                self.logger.debug("Обновлено несколько настроек")
+        except Exception as e:
+            self.logger.error(f"Ошибка при установке нескольких настроек: {e}\n{traceback.format_exc()}")
     
     def reset(self, keys: Optional[Set[str]] = None) -> None:
         """
@@ -239,20 +281,23 @@ class SettingsManager(QObject):
         Args:
             keys: Набор ключей для сброса. Если None, сбрасывает все настройки.
         """
-        reset_dict = {}
-        
-        if keys is None:
-            # Сбрасываем все настройки
-            reset_dict = self.DEFAULT_SETTINGS.copy()
-        else:
-            # Сбрасываем только указанные настройки
-            for key in keys:
-                if key in self.DEFAULT_SETTINGS:
-                    reset_dict[key] = self.DEFAULT_SETTINGS[key]
-        
-        # Применяем сброс
-        self.set_many(reset_dict)
-        self.logger.debug(f"Настройки сброшены: {list(reset_dict.keys())}")
+        try:
+            reset_dict = {}
+            
+            if keys is None:
+                # Сбрасываем все настройки
+                reset_dict = self.DEFAULT_SETTINGS.copy()
+            else:
+                # Сбрасываем только указанные настройки
+                for key in keys:
+                    if key in self.DEFAULT_SETTINGS:
+                        reset_dict[key] = self.DEFAULT_SETTINGS[key]
+            
+            # Применяем сброс
+            self.set_many(reset_dict)
+            self.logger.debug(f"Настройки сброшены: {list(reset_dict.keys())}")
+        except Exception as e:
+            self.logger.error(f"Ошибка при сбросе настроек: {e}\n{traceback.format_exc()}")
 
 
 # Создаем экземпляр менеджера настроек
