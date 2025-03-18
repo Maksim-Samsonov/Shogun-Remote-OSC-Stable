@@ -1,0 +1,4 @@
+# Project configuration for Shogun Live API.
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
