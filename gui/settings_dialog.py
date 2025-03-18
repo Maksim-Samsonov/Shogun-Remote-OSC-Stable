@@ -5,6 +5,7 @@
 
 import os
 import logging
+import traceback
 from typing import Dict, Any, List, Optional
 
 from PyQt5.QtWidgets import (QDialog, QTabWidget, QVBoxLayout, QHBoxLayout, 
@@ -34,7 +35,11 @@ class SettingsDialog(QDialog):
         self.current_settings = self.original_settings.copy()
         
         # Инициализация UI
-        self.init_ui()
+        try:
+            self.init_ui()
+        except Exception as e:
+            self.logger.error(f"Ошибка при инициализации диалога настроек: {e}\n{traceback.format_exc()}")
+            raise
         
     def init_ui(self):
         """Инициализация пользовательского интерфейса"""
@@ -49,9 +54,13 @@ class SettingsDialog(QDialog):
         main_layout.addWidget(self.tab_widget)
         
         # Создаем вкладки для разных групп настроек
-        self.create_general_tab()
-        self.create_osc_tab()
-        self.create_logging_tab()
+        try:
+            self.create_general_tab()
+            self.create_osc_tab()
+            self.create_logging_tab()
+        except Exception as e:
+            self.logger.error(f"Ошибка при создании вкладок настроек: {e}\n{traceback.format_exc()}")
+            raise
         
         # Создаем кнопки "ОК", "Отмена", "Применить"
         button_box = QDialogButtonBox(
@@ -159,7 +168,10 @@ class SettingsDialog(QDialog):
         logging_layout.addRow(self.log_to_file_checkbox)
         
         # Директория для логов
-        self.log_dir_layout = QHBoxLayout()
+        log_dir_widget = QWidget()
+        self.log_dir_layout = QHBoxLayout(log_dir_widget)
+        self.log_dir_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.log_dir_input = QLineEdit(self.current_settings.get("log_dir", ""))
         self.log_dir_input.setPlaceholderText("Директория для логов (пусто = по умолчанию)")
         self.log_dir_layout.addWidget(self.log_dir_input)
@@ -169,13 +181,16 @@ class SettingsDialog(QDialog):
         select_dir_button.clicked.connect(self.select_log_directory)
         self.log_dir_layout.addWidget(select_dir_button)
         
-        logging_layout.addRow("Директория для логов:", self.log_dir_layout)
+        logging_layout.addRow("Директория для логов:", log_dir_widget)
         
         # Показываем текущую директорию для логов по умолчанию
-        default_log_dir = self.settings_manager.get_logs_dir()
-        log_dir_label = QLabel(f"Текущая директория: {default_log_dir}")
-        log_dir_label.setStyleSheet("color: gray;")
-        logging_layout.addRow("", log_dir_label)
+        try:
+            default_log_dir = self.settings_manager.get_logs_dir()
+            log_dir_label = QLabel(f"Текущая директория: {default_log_dir}")
+            log_dir_label.setStyleSheet("color: gray;")
+            logging_layout.addRow("", log_dir_label)
+        except Exception as e:
+            self.logger.error(f"Ошибка при получении директории логов: {e}")
         
         layout.addWidget(logging_group)
         
@@ -186,17 +201,25 @@ class SettingsDialog(QDialog):
     
     def select_log_directory(self):
         """Диалог выбора директории для логов"""
-        current_dir = self.log_dir_input.text() or self.settings_manager.get_logs_dir()
-        
-        directory = QFileDialog.getExistingDirectory(
-            self, 
-            "Выберите директорию для логов",
-            current_dir,
-            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
-        )
-        
-        if directory:
-            self.log_dir_input.setText(directory)
+        try:
+            current_dir = self.log_dir_input.text() or self.settings_manager.get_logs_dir()
+            
+            directory = QFileDialog.getExistingDirectory(
+                self, 
+                "Выберите директорию для логов",
+                current_dir,
+                QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
+            )
+            
+            if directory:
+                self.log_dir_input.setText(directory)
+        except Exception as e:
+            self.logger.error(f"Ошибка при выборе директории для логов: {e}")
+            QMessageBox.warning(
+                self,
+                "Ошибка",
+                f"Не удалось выбрать директорию: {e}"
+            )
     
     def collect_settings(self) -> Dict[str, Any]:
         """
@@ -207,51 +230,64 @@ class SettingsDialog(QDialog):
         """
         settings = {}
         
-        # Общие настройки
-        settings["dark_mode"] = self.dark_mode_checkbox.isChecked()
-        
-        # OSC настройки
-        settings["osc_enabled"] = self.osc_enabled_checkbox.isChecked()
-        settings["osc_ip"] = self.osc_ip_input.text()
-        settings["osc_port"] = self.osc_port_input.value()
-        settings["osc_broadcast_ip"] = self.osc_broadcast_ip_input.text()
-        settings["osc_broadcast_port"] = self.osc_broadcast_port_input.value()
-        
-        # Настройки логирования
-        settings["log_level"] = self.log_level_combo.currentText()
-        settings["log_to_file"] = self.log_to_file_checkbox.isChecked()
-        settings["log_dir"] = self.log_dir_input.text()
+        try:
+            # Общие настройки
+            settings["dark_mode"] = self.dark_mode_checkbox.isChecked()
+            
+            # OSC настройки
+            settings["osc_enabled"] = self.osc_enabled_checkbox.isChecked()
+            settings["osc_ip"] = self.osc_ip_input.text()
+            settings["osc_port"] = self.osc_port_input.value()
+            settings["osc_broadcast_ip"] = self.osc_broadcast_ip_input.text()
+            settings["osc_broadcast_port"] = self.osc_broadcast_port_input.value()
+            
+            # Настройки логирования
+            settings["log_level"] = self.log_level_combo.currentText()
+            settings["log_to_file"] = self.log_to_file_checkbox.isChecked()
+            settings["log_dir"] = self.log_dir_input.text()
+        except Exception as e:
+            self.logger.error(f"Ошибка при сборе настроек: {e}\n{traceback.format_exc()}")
         
         return settings
     
     def apply_settings(self):
         """Применение изменений настроек"""
-        new_settings = self.collect_settings()
-        
-        # Проверяем и создаем директорию для логов если указана и не существует
-        log_dir = new_settings.get("log_dir")
-        if log_dir and not os.path.exists(log_dir):
-            try:
-                os.makedirs(log_dir)
-                self.logger.info(f"Создана директория для логов: {log_dir}")
-            except OSError as e:
-                self.logger.error(f"Ошибка создания директории для логов: {e}")
-                QMessageBox.warning(
-                    self,
-                    "Ошибка",
-                    f"Не удалось создать директорию для логов: {e}"
-                )
-                return False
-        
-        # Сохраняем настройки
-        self.settings_manager.set_many(new_settings)
-        self.logger.info("Настройки применены")
-        
-        # Обновляем локальную копию настроек
-        self.original_settings = self.settings_manager.get_all()
-        self.current_settings = self.original_settings.copy()
-        
-        return True
+        try:
+            new_settings = self.collect_settings()
+            
+            # Проверяем и создаем директорию для логов если указана и не существует
+            log_dir = new_settings.get("log_dir")
+            if log_dir and not os.path.exists(log_dir):
+                try:
+                    os.makedirs(log_dir)
+                    self.logger.info(f"Создана директория для логов: {log_dir}")
+                except OSError as e:
+                    self.logger.error(f"Ошибка создания директории для логов: {e}")
+                    QMessageBox.warning(
+                        self,
+                        "Ошибка",
+                        f"Не удалось создать директорию для логов: {e}"
+                    )
+                    return False
+            
+            # Сохраняем настройки
+            self.settings_manager.set_many(new_settings)
+            self.logger.info("Настройки применены")
+            
+            # Обновляем локальную копию настроек
+            self.original_settings = self.settings_manager.get_all()
+            self.current_settings = self.original_settings.copy()
+            
+            return True
+        except Exception as e:
+            error_msg = f"Ошибка при применении настроек: {e}"
+            self.logger.error(f"{error_msg}\n{traceback.format_exc()}")
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось применить настройки: {e}"
+            )
+            return False
     
     def accept(self):
         """Обработка нажатия кнопки "ОК" - применить и закрыть"""
@@ -260,33 +296,42 @@ class SettingsDialog(QDialog):
     
     def reset_to_defaults(self):
         """Сброс настроек к значениям по умолчанию"""
-        # Запрашиваем подтверждение
-        result = QMessageBox.question(
-            self,
-            "Сброс настроек",
-            "Вы уверены, что хотите сбросить все настройки к значениям по умолчанию?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
-        )
-        
-        if result != QMessageBox.Yes:
-            return
-        
-        # Сбрасываем настройки к значениям по умолчанию
-        self.settings_manager.reset()
-        self.logger.info("Настройки сброшены к значениям по умолчанию")
-        
-        # Обновляем интерфейс
-        self.original_settings = self.settings_manager.get_all()
-        self.current_settings = self.original_settings.copy()
-        
-        # Обновляем содержимое виджетов
-        self.dark_mode_checkbox.setChecked(self.current_settings.get("dark_mode", False))
-        self.osc_enabled_checkbox.setChecked(self.current_settings.get("osc_enabled", True))
-        self.osc_ip_input.setText(self.current_settings.get("osc_ip", "0.0.0.0"))
-        self.osc_port_input.setValue(self.current_settings.get("osc_port", 5555))
-        self.osc_broadcast_ip_input.setText(self.current_settings.get("osc_broadcast_ip", "255.255.255.255"))
-        self.osc_broadcast_port_input.setValue(self.current_settings.get("osc_broadcast_port", 9000))
-        self.log_level_combo.setCurrentText(self.current_settings.get("log_level", "INFO").upper())
-        self.log_to_file_checkbox.setChecked(self.current_settings.get("log_to_file", True))
-        self.log_dir_input.setText(self.current_settings.get("log_dir", ""))
+        try:
+            # Запрашиваем подтверждение
+            result = QMessageBox.question(
+                self,
+                "Сброс настроек",
+                "Вы уверены, что хотите сбросить все настройки к значениям по умолчанию?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
+            if result != QMessageBox.Yes:
+                return
+            
+            # Сбрасываем настройки к значениям по умолчанию
+            self.settings_manager.reset()
+            self.logger.info("Настройки сброшены к значениям по умолчанию")
+            
+            # Обновляем интерфейс
+            self.original_settings = self.settings_manager.get_all()
+            self.current_settings = self.original_settings.copy()
+            
+            # Обновляем содержимое виджетов
+            self.dark_mode_checkbox.setChecked(self.current_settings.get("dark_mode", False))
+            self.osc_enabled_checkbox.setChecked(self.current_settings.get("osc_enabled", True))
+            self.osc_ip_input.setText(self.current_settings.get("osc_ip", "0.0.0.0"))
+            self.osc_port_input.setValue(self.current_settings.get("osc_port", 5555))
+            self.osc_broadcast_ip_input.setText(self.current_settings.get("osc_broadcast_ip", "255.255.255.255"))
+            self.osc_broadcast_port_input.setValue(self.current_settings.get("osc_broadcast_port", 9000))
+            self.log_level_combo.setCurrentText(self.current_settings.get("log_level", "INFO").upper())
+            self.log_to_file_checkbox.setChecked(self.current_settings.get("log_to_file", True))
+            self.log_dir_input.setText(self.current_settings.get("log_dir", ""))
+        except Exception as e:
+            error_msg = f"Ошибка при сбросе настроек: {e}"
+            self.logger.error(f"{error_msg}\n{traceback.format_exc()}")
+            QMessageBox.critical(
+                self,
+                "Ошибка",
+                f"Не удалось сбросить настройки: {e}"
+            )
