@@ -6,16 +6,15 @@
 
 import asyncio
 import logging
-import threading
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
                            QLabel, QPushButton, QTextEdit, QGroupBox, QGridLayout,
                            QLineEdit, QSpinBox, QComboBox, QStatusBar, QCheckBox, QSplitter,
                            QAction, QMenu, QToolBar, QApplication, QMessageBox, QFileDialog)
-from PyQt5.QtCore import Qt, QTimer, QSettings
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QTextCursor, QIcon, QPixmap
 
 from gui.status_panel import StatusPanel
@@ -32,6 +31,12 @@ class ShogunOSCApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.logger = logging.getLogger('ShogunOSC')
+
+        # Получаем ссылку на менеджер настроек
+        self.settings_manager = config.settings_manager
+        
+        # Подключаемся к сигналу изменения настроек
+        self.settings_manager.settings_changed.connect(self.on_settings_changed)
 
         # Create ShogunWorker before loading UI
         self.shogun_worker = ShogunWorker()
@@ -81,6 +86,31 @@ class ShogunOSCApp(QMainWindow):
                                   "Убедитесь, что установлены все зависимости:\n"
                                   "pip install vicon-core-api shogun-live-api python-osc psutil PyQt5")
     
+    def on_settings_changed(self, key: str, value: Any) -> None:
+        """
+        Обработчик изменения настроек приложения
+        
+        Args:
+            key: Ключ изменённой настройки
+            value: Новое значение настройки
+        """
+        self.logger.debug(f"Настройка изменена: {key} = {value}")
+        
+        # Обработка изменения темы
+        if key == "dark_mode":
+            config.DARK_MODE = value
+            self.apply_theme(value)
+        
+        # Обработка изменений OSC-настроек
+        elif key.startswith("osc_"):
+            if key == "osc_enabled" and self.status_panel:
+                if value != self.status_panel.osc_panel.osc_enabled.isChecked():
+                    self.status_panel.osc_panel.osc_enabled.setChecked(value)
+            elif key == "osc_ip" and self.status_panel:
+                self.status_panel.osc_panel.ip_input.setText(value)
+            elif key == "osc_port" and self.status_panel:
+                self.status_panel.osc_panel.port_input.setValue(value)
+    
     def init_ui(self):
         """Инициализация пользовательского интерфейса"""
         self.setWindowTitle("Shogun OSC GUI")
@@ -91,7 +121,7 @@ class ShogunOSCApp(QMainWindow):
         self.status_bar.showMessage("Готов к работе")
         
         # Теперь можно применять тему
-        self.apply_theme(config.DARK_MODE)
+        self.apply_theme(self.settings_manager.get("dark_mode"))
         
         # Создаем меню и тулбар
         self.create_menu()
@@ -115,7 +145,7 @@ class ShogunOSCApp(QMainWindow):
         self.setCentralWidget(central_widget)
         
         # Запускаем OSC сервер
-        if self.status_panel.osc_panel.osc_enabled.isChecked():
+        if self.settings_manager.get("osc_enabled"):
             self.start_osc_server()
         
         # Настраиваем таймер автосохранения настроек
@@ -151,7 +181,7 @@ class ShogunOSCApp(QMainWindow):
 
         self.theme_action = QAction("Тёмная тема", self)
         self.theme_action.setCheckable(True)
-        self.theme_action.setChecked(config.DARK_MODE)
+        self.theme_action.setChecked(self.settings_manager.get("dark_mode"))
         self.theme_action.triggered.connect(self.toggle_theme)
         settings_menu.addAction(self.theme_action)
 
@@ -208,8 +238,8 @@ class ShogunOSCApp(QMainWindow):
             broadcast_settings = self.status_panel.osc_panel.get_broadcast_settings()
             
             # Обновляем настройки в конфигурации
-            config.app_settings["osc_broadcast_ip"] = broadcast_settings["ip"]
-            config.app_settings["osc_broadcast_port"] = broadcast_settings["port"]
+            self.settings_manager.set("osc_broadcast_ip", broadcast_settings["ip"])
+            self.settings_manager.set("osc_broadcast_port", broadcast_settings["port"])
             
             # Отправляем сообщение
             success = self.osc_server.send_osc_message(config.OSC_CAPTURE_NAME_CHANGED, new_name)
@@ -231,8 +261,8 @@ class ShogunOSCApp(QMainWindow):
             broadcast_settings = self.status_panel.osc_panel.get_broadcast_settings()
             
             # Обновляем настройки в конфигурации
-            config.app_settings["osc_broadcast_ip"] = broadcast_settings["ip"]
-            config.app_settings["osc_broadcast_port"] = broadcast_settings["port"]
+            self.settings_manager.set("osc_broadcast_ip", broadcast_settings["ip"])
+            self.settings_manager.set("osc_broadcast_port", broadcast_settings["port"])
             
             # Отправляем сообщение
             success = self.osc_server.send_osc_message(config.OSC_DESCRIPTION_CHANGED, new_description)
@@ -255,8 +285,8 @@ class ShogunOSCApp(QMainWindow):
             broadcast_settings = self.status_panel.osc_panel.get_broadcast_settings()
             
             # Обновляем настройки в конфигурации
-            config.app_settings["osc_broadcast_ip"] = broadcast_settings["ip"]
-            config.app_settings["osc_broadcast_port"] = broadcast_settings["port"]
+            self.settings_manager.set("osc_broadcast_ip", broadcast_settings["ip"])
+            self.settings_manager.set("osc_broadcast_port", broadcast_settings["port"])
             
             # Отправляем сообщение
             success = self.osc_server.send_osc_message(config.OSC_CAPTURE_FOLDER_CHANGED, new_folder)
@@ -288,13 +318,21 @@ class ShogunOSCApp(QMainWindow):
         """Включение/выключение OSC-сервера"""
         if state == Qt.Checked:
             self.start_osc_server()
+            # Обновляем настройку
+            self.settings_manager.set("osc_enabled", True)
         else:
             self.stop_osc_server()
+            # Обновляем настройку
+            self.settings_manager.set("osc_enabled", False)
     
     def start_osc_server(self):
         """Запуск OSC-сервера"""
         ip = self.status_panel.osc_panel.ip_input.text()
         port = self.status_panel.osc_panel.port_input.value()
+        
+        # Сохраняем настройки
+        self.settings_manager.set("osc_ip", ip)
+        self.settings_manager.set("osc_port", port)
         
         # Останавливаем предыдущий сервер, если был
         self.stop_osc_server()
@@ -308,7 +346,7 @@ class ShogunOSCApp(QMainWindow):
         self.status_panel.osc_panel.ip_input.setEnabled(False)
         self.status_panel.osc_panel.port_input.setEnabled(False)
         
-        # Удалено дублирующее сообщение о запуске OSC-сервера
+        self.logger.info(f"OSC-сервер запущен на {ip}:{port}")
     
     def stop_osc_server(self):
         """Остановка OSC-сервера"""
@@ -328,8 +366,7 @@ class ShogunOSCApp(QMainWindow):
         """Применяет выбранную тему ко всему приложению"""
         # Обновляем настройку темной темы в конфигурации
         config.DARK_MODE = dark_mode
-        config.app_settings['dark_mode'] = dark_mode
-        config.save_settings(config.app_settings)
+        self.settings_manager.set("dark_mode", dark_mode)
         
         # Применяем палитру и стили
         palette = get_palette(dark_mode)
@@ -357,7 +394,7 @@ class ShogunOSCApp(QMainWindow):
         about_text = (
             "<h2>Shogun OSC GUI</h2>"
             "<p>Приложение для управления Shogun Live через OSC-протокол</p>"
-            "<p>Версия: 1.0</p>"
+            f"<p>Версия: {config.APP_VERSION}</p>"
             "<p>Лицензия: MIT</p>"
         )
         
@@ -370,7 +407,7 @@ class ShogunOSCApp(QMainWindow):
         msg_box.exec_()
         
         # Также добавляем в лог
-        self.logger.info("О программе: Shogun OSC GUI v1.0")
+        self.logger.info(f"О программе: Shogun OSC GUI v{config.APP_VERSION}")
     
     def save_log_to_file(self):
         """Сохраняет журнал логов в файл через диалог выбора файла"""
@@ -378,11 +415,22 @@ class ShogunOSCApp(QMainWindow):
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             default_filename = f"shogun_osc_log_{timestamp}.html"
             
+            # Получаем директорию для логов
+            logs_dir = self.settings_manager.get_logs_dir()
+            if not os.path.exists(logs_dir):
+                try:
+                    os.makedirs(logs_dir)
+                except OSError as e:
+                    self.logger.warning(f"Не удалось создать директорию для логов: {e}")
+            
+            # Формируем полный путь
+            default_path = os.path.join(logs_dir, default_filename)
+            
             # Открываем диалог выбора файла
             filename, _ = QFileDialog.getSaveFileName(
                 self, 
                 "Сохранить журнал логов", 
-                default_filename, 
+                default_path, 
                 "HTML Files (*.html);;Text Files (*.txt);;All Files (*)"
             )
             
@@ -416,16 +464,19 @@ class ShogunOSCApp(QMainWindow):
     
     def save_current_settings(self):
         """Сохраняет текущие настройки приложения"""
-        config.app_settings["osc_ip"] = self.status_panel.osc_panel.ip_input.text()
-        config.app_settings["osc_port"] = self.status_panel.osc_panel.port_input.value()
-        config.app_settings["osc_enabled"] = self.status_panel.osc_panel.osc_enabled.isChecked()
+        settings_dict = {
+            "osc_ip": self.status_panel.osc_panel.ip_input.text(),
+            "osc_port": self.status_panel.osc_panel.port_input.value(),
+            "osc_enabled": self.status_panel.osc_panel.osc_enabled.isChecked()
+        }
         
         # Сохраняем настройки отправки OSC-сообщений
         broadcast_settings = self.status_panel.osc_panel.get_broadcast_settings()
-        config.app_settings["osc_broadcast_ip"] = broadcast_settings["ip"]
-        config.app_settings["osc_broadcast_port"] = broadcast_settings["port"]
+        settings_dict["osc_broadcast_ip"] = broadcast_settings["ip"]
+        settings_dict["osc_broadcast_port"] = broadcast_settings["port"]
         
-        config.save_settings(config.app_settings)
+        # Сохраняем все настройки сразу
+        self.settings_manager.set_many(settings_dict)
     
     def show_error_dialog(self, title, message):
         """Показывает диалоговое окно с ошибкой"""
