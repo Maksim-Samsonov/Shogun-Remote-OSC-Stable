@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import QApplication, QMessageBox, QSplashScreen
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtCore import Qt, QTimer
 
-from logger.custom_logger import setup_logging, log_system_info
+from logger.custom_logger import setup_logging, log_system_info, get_log_level
 import config
 
 def parse_arguments():
@@ -21,7 +21,9 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='ShogunOSC GUI - приложение для управления Shogun Live через OSC')
     parser.add_argument('--log-file', action='store_true', help='Включить логирование в файл')
     parser.add_argument('--log-dir', type=str, help='Директория для файлов логов')
-    parser.add_argument('--debug', action='store_true', help='Включить отладочный режим')
+    parser.add_argument('--log-level', type=str, choices=['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'], 
+                       help='Уровень логирования')
+    parser.add_argument('--debug', action='store_true', help='Включить отладочный режим (эквивалентно --log-level=DEBUG)')
     return parser.parse_args()
 
 def show_error_message(message, details=None):
@@ -35,16 +37,39 @@ def show_error_message(message, details=None):
     error_dialog.setStandardButtons(QMessageBox.Ok)
     error_dialog.exec_()
 
+def apply_command_line_args(args):
+    """
+    Применяет аргументы командной строки к настройкам приложения
+    
+    Args:
+        args: Аргументы командной строки, полученные через argparse
+    """
+    settings_manager = config.settings_manager
+    
+    # Применяем настройки логирования из командной строки
+    if args.log_file:
+        settings_manager.set("log_to_file", True)
+    
+    if args.log_dir:
+        settings_manager.set("log_dir", args.log_dir)
+    
+    # Устанавливаем уровень логирования
+    if args.debug:
+        settings_manager.set("log_level", "DEBUG")
+    elif args.log_level:
+        settings_manager.set("log_level", args.log_level)
+
 def main():
     """Основная функция запуска приложения"""
     try:
         # Парсим аргументы командной строки
         args = parse_arguments()
         
+        # Применяем аргументы к настройкам приложения
+        apply_command_line_args(args)
+        
         # Настройка логирования
-        log_level = logging.DEBUG if args.debug else logging.INFO
-        logger = setup_logging(args.log_file, args.log_dir)
-        logger.setLevel(log_level)
+        logger = setup_logging()
         
         # Логируем информацию о системе
         log_system_info(logger)
@@ -89,7 +114,7 @@ def main():
         window = ShogunOSCApp()
         
         # Применяем тему при запуске если нужно
-        if config.DARK_MODE:
+        if config.settings_manager.get("dark_mode"):
             from styles.app_styles import get_palette, get_stylesheet
             app.setPalette(get_palette(True))
             app.setStyleSheet(get_stylesheet(True))
