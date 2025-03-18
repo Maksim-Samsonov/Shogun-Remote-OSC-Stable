@@ -4,14 +4,47 @@
 
 import asyncio
 import logging
-import threading
 import socket
 from datetime import datetime
 from typing import Callable, Any, Optional
-from PyQt5.QtCore import QThread, pyqtSignal
+from PyQt5.QtCore import QThread, pyqtSignal, QRunnable, QThreadPool, QObject
 
 from pythonosc import dispatcher, osc_server, udp_client
 import config
+
+class ShogunTaskSignals(QObject):
+    """Сигналы для задач Shogun."""
+    finished = pyqtSignal(object)
+    error = pyqtSignal(str)
+
+class ShogunTask(QRunnable):
+    """Рабочая задача для выполнения асинхронных операций Shogun в пуле потоков."""
+    
+    def __init__(self, coro_func: Callable):
+        """
+        Инициализирует новую задачу.
+        
+        Args:
+            coro_func: Корутина для выполнения
+        """
+        super().__init__()
+        self.coro_func = coro_func
+        self.signals = ShogunTaskSignals()
+        self.logger = logging.getLogger('ShogunOSC')
+        
+    def run(self):
+        """Запускает асинхронную функцию в отдельном цикле событий."""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(self.coro_func())
+                self.signals.finished.emit(result)
+            finally:
+                loop.close()
+        except Exception as e:
+            self.logger.error(f"Ошибка в ShogunTask: {e}")
+            self.signals.error.emit(str(e))
 
 class OSCServer(QThread):
     """Поток OSC-сервера для приема и обработки OSC-сообщений"""
@@ -28,6 +61,7 @@ class OSCServer(QThread):
         self.server = None
         self._socket = None
         self.osc_client = None
+        self.thread_pool = QThreadPool.globalInstance()
         
         # Настройка обработчиков OSC-сообщений
         self.setup_dispatcher()
@@ -41,6 +75,28 @@ class OSCServer(QThread):
         self.dispatcher.map(config.OSC_SET_CAPTURE_FOLDER, self.set_capture_folder)  # Новый обработчик для установки папки захвата
         self.dispatcher.set_default_handler(self.default_handler)
     
+    def _run_task(self, coro_func: Callable, finished_callback=None, error_callback=None) -> None:
+        """
+        Запускает асинхронную задачу в пуле потоков.
+        
+        Args:
+            coro_func: Асинхронная функция для выполнения
+            finished_callback: Callback для обработки завершения задачи
+            error_callback: Callback для обработки ошибки
+        """
+        task = ShogunTask(coro_func)
+        
+        if finished_callback:
+            task.signals.finished.connect(finished_callback)
+        
+        if error_callback:
+            task.signals.error.connect(error_callback)
+        else:
+            # Стандартный обработчик ошибок
+            task.signals.error.connect(lambda error: self.logger.error(f"Ошибка задачи: {error}"))
+            
+        self.thread_pool.start(task)
+    
     def start_recording(self, address: str, *args: Any) -> None:
         """
         Обработчик команды запуска записи
@@ -53,8 +109,13 @@ class OSCServer(QThread):
         self.message_signal.emit(address, "Запуск записи")
         
         if self.shogun_worker and self.shogun_worker.connected:
-            threading.Thread(target=self._run_async_task, 
-                             args=(self.shogun_worker.startcapture,)).start()
+            def on_finished(result):
+                self.logger.info("Запись успешно запущена" if result else "Не удалось запустить запись")
+                
+            self._run_task(
+                self.shogun_worker.startcapture,
+                finished_callback=on_finished
+            )
         else:
             self.logger.warning("Не удалось запустить запись: нет подключения к Shogun Live")
     
@@ -70,8 +131,13 @@ class OSCServer(QThread):
         self.message_signal.emit(address, "Остановка записи")
         
         if self.shogun_worker and self.shogun_worker.connected:
-            threading.Thread(target=self._run_async_task, 
-                             args=(self.shogun_worker.stopcapture,)).start()
+            def on_finished(result):
+                self.logger.info("Запись успешно остановлена" if result else "Не удалось остановить запись")
+                
+            self._run_task(
+                self.shogun_worker.stopcapture,
+                finished_callback=on_finished
+            )
         else:
             self.logger.warning("Не удалось остановить запись: нет подключения к Shogun Live")
     
@@ -102,8 +168,16 @@ class OSCServer(QThread):
             async def set_name_task():
                 return await self.shogun_worker.set_capture_name(new_name)
                 
-            threading.Thread(target=self._run_async_task, 
-                             args=(set_name_task,)).start()
+            def on_finished(result):
+                if result:
+                    self.logger.info(f"Имя захвата успешно установлено: '{new_name}'")
+                else:
+                    self.logger.warning(f"Не удалось установить имя захвата: '{new_name}'")
+                
+            self._run_task(
+                set_name_task,
+                finished_callback=on_finished
+            )
         else:
             self.logger.warning("Не удалось установить имя захвата: нет подключения к Shogun Live")
     
@@ -130,8 +204,16 @@ class OSCServer(QThread):
             async def set_description_task():
                 return await self.shogun_worker.set_capture_description(new_description)
                 
-            threading.Thread(target=self._run_async_task, 
-                             args=(set_description_task,)).start()
+            def on_finished(result):
+                if result:
+                    self.logger.info(f"Описание захвата успешно установлено")
+                else:
+                    self.logger.warning(f"Не удалось установить описание захвата")
+                
+            self._run_task(
+                set_description_task,
+                finished_callback=on_finished
+            )
         else:
             self.logger.warning("Не удалось установить описание захвата: нет подключения к Shogun Live")
     
@@ -162,8 +244,16 @@ class OSCServer(QThread):
             async def set_folder_task():
                 return await self.shogun_worker.set_capture_folder(new_folder_path)
                 
-            threading.Thread(target=self._run_async_task, 
-                             args=(set_folder_task,)).start()
+            def on_finished(result):
+                if result:
+                    self.logger.info(f"Путь к папке захвата успешно установлен: '{new_folder_path}'")
+                else:
+                    self.logger.warning(f"Не удалось установить путь к папке захвата: '{new_folder_path}'")
+                
+            self._run_task(
+                set_folder_task,
+                finished_callback=on_finished
+            )
         else:
             self.logger.warning("Не удалось установить путь к папке захвата: нет подключения к Shogun Live")
     
@@ -178,23 +268,6 @@ class OSCServer(QThread):
         args_str = ", ".join(str(arg) for arg in args) if args else "нет аргументов"
         self.logger.debug(f"Получено неизвестное OSC-сообщение: {address} -> {args_str}")
         self.message_signal.emit(address, args_str)
-    
-    def _run_async_task(self, coro_func: Callable) -> Any:
-        """
-        Запускает асинхронную функцию в отдельном цикле событий
-        
-        Args:
-            coro_func: Асинхронная функция для выполнения
-            
-        Returns:
-            Any: Результат выполнения функции
-        """
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            return loop.run_until_complete(coro_func())
-        finally:
-            loop.close()
     
     def send_osc_message(self, address: str, value: Any) -> bool:
         """
