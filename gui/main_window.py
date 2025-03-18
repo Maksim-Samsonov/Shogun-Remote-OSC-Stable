@@ -19,6 +19,7 @@ from PyQt5.QtGui import QTextCursor, QIcon, QPixmap
 
 from gui.status_panel import StatusPanel
 from gui.log_panel import LogPanel
+from gui.settings_dialog import SettingsDialog
 from shogun.shogun_client import ShogunWorker
 from osc.osc_server import OSCServer, format_osc_message
 from logger.custom_logger import add_text_widget_handler
@@ -175,10 +176,16 @@ class ShogunOSCApp(QMainWindow):
         
         # Меню "Настройки"
         settings_menu = menubar.addMenu("Настройки")
+        
+        # Пункт "Настройки программы"
+        settings_action = QAction("Настройки программы...", self)
+        settings_action.setShortcut("Ctrl+P")
+        settings_action.triggered.connect(self.show_settings_dialog)
+        settings_menu.addAction(settings_action)
+        
+        settings_menu.addSeparator()
 
-        # Подменю "OSC"
-        osc_menu = settings_menu.addMenu("OSC")
-
+        # Чекбокс "Тёмная тема"
         self.theme_action = QAction("Тёмная тема", self)
         self.theme_action.setCheckable(True)
         self.theme_action.setChecked(self.settings_manager.get("dark_mode"))
@@ -191,6 +198,14 @@ class ShogunOSCApp(QMainWindow):
         about_action = QAction("О программе", self)
         about_action.triggered.connect(self.show_about)
         help_menu.addAction(about_action)
+    
+    def show_settings_dialog(self):
+        """Показывает диалог настроек приложения"""
+        settings_dialog = SettingsDialog(self)
+        result = settings_dialog.exec_()
+        
+        if result == SettingsDialog.Accepted:
+            self.logger.info("Настройки применены из диалога настроек")
     
     def connect_signals(self):
         """Подключение сигналов между компонентами"""
