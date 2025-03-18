@@ -11,7 +11,7 @@ from typing import Dict, Any, List, Optional
 from PyQt5.QtWidgets import (QDialog, QTabWidget, QVBoxLayout, QHBoxLayout, 
                            QLabel, QLineEdit, QSpinBox, QCheckBox, QComboBox, 
                            QPushButton, QGroupBox, QFormLayout, QFileDialog,
-                           QDialogButtonBox, QMessageBox)
+                           QDialogButtonBox, QMessageBox, QWidget)
 from PyQt5.QtCore import Qt
 
 import config
